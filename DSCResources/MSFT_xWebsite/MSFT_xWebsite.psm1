@@ -233,8 +233,12 @@ function Set-TargetResource
         [Microsoft.Management.Infrastructure.CimInstance]
         $AuthenticationInfo,
 
-        [Microsoft.Management.Infrastructure.CimInstance]
-        $AnonymousCredentials,
+        [ValidateSet('ApplicationPoolIdentity', 'SpecificUser')]
+        [String] $AnonymousIdentityType,
+
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $AnonymousCredential,
 
         [Boolean]
         $PreloadEnabled,
@@ -533,14 +537,11 @@ function Set-TargetResource
                                     -f $Name)
         }
 
-        if($PSBoundParameters.ContainsKey('AnonymousCredentials') -and `
-            (Test-AuthenticationEnabled -Site $Name -Type 'Anonymous' ) -and `
-               ( -not (Test-AnonymousCredentials -Site $Name -Credentials $AnonymousCredentials)))
-        {
-            Set-AnonymousAuthenticationCredentials -Site $Name -Credentials $AnonymousCredentials -ErrorAction Stop
-            Write-Verbose -Message ($LocalizedData.VerboseSetTargetAnonymousCredentialsUpdated `
-                                    -f $Name)
-        }
+
+        Set-AnonymousAuthenticationDetails -Site $Name `
+                                           -AuthenticationInfo $AuthenticationInfo `
+                                           -AnonymousIdentityType $AnonymousIdentityType `
+                                           -AnonymousCredential $AnonymousCredential
 
         # Update Preload if required
         if ($PSBoundParameters.ContainsKey('preloadEnabled') -and `
@@ -2261,6 +2262,33 @@ function Update-WebsiteBinding
 }
 
 
+function Set-AnonymousAuthenticationDetails {
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true)]
+        $Site,
+        [string]
+        $AuthenticationInfo,
+        [string]
+        $AnonymousIdentityType,
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $AnonymousCredential
+    )
+
+    $shouldClearCredential = ($AuthenticationInfo -ne 'Anonymous') -or ($AnonymousIdentityType -ne 'SpecificUser') -or ($AnonymousCredential -eq $null)
+    $shouldSetSpecificUserCredential = ($AuthenticationInfo -eq 'Anonymous') -and ($AnonymousIdentityType -eq 'SpecificUser') -and ($AnonymousCredential -ne $null)
+    if($shouldClearCredential)
+    {
+        Set-AnonymousAuthenticationCredentials -Site $Site -UserName '' -Password ''
+    }
+    elseif($shouldSetSpecificUserCredential)
+    {
+        Set-AnonymousAuthenticationCredentials -Site $Site -UserName $Credential.UserName -Password $Credential.GetNetworkCredential().Password
+    }
+}
+
 function Test-AnonymousCredentials
 {
     [CmdletBinding()]
@@ -2322,13 +2350,13 @@ function Set-AnonymousAuthenticationCredentials
     (
         [Parameter(Mandatory = $true)]
         [String]$Site,
-
-        [Microsoft.Management.Infrastructure.CimInstance]
-        $Credentials
+        [String]$UserName,
+        [String]$Password
     )
     $anonymousAuthenticationConfigurationPath = 'system.webServer/security/authentication/anonymousAuthentication'
-    Set-WebConfigurationProperty -Location $Site -Filter $anonymousAuthenticationConfigurationPath -Name 'userName' -Value $Credentials.UserName
-    Set-WebConfigurationProperty -Location $Site -Filter $anonymousAuthenticationConfigurationPath -Name 'password' -Value $Credentials.Password
+    Set-WebConfigurationProperty -Location $Site -Filter $anonymousAuthenticationConfigurationPath -Name 'userName' -Value $UserName
+    Set-WebConfigurationProperty -Location $Site -Filter $anonymousAuthenticationConfigurationPath -Name 'password' -Value $Password
+    Write-Verbose -Message ($LocalizedData.VerboseSetTargetAnonymousCredentialsUpdated -f $Site)
 }
 
 function ConvertTo-NotNullString

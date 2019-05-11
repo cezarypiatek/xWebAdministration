@@ -22,13 +22,6 @@ class MSFT_xWebAuthenticationInformation
 };
 
 [ClassVersion("1.0.0")]
-class MSFT_xWebAnonymousAuthenticationCredentials
-{
-    [Write] String UserName;
-    [Write] String Password;
-};
-
-[ClassVersion("1.0.0")]
 class MSFT_xLogCustomFieldInformation
 {
     [Write] String LogFieldName;
@@ -49,7 +42,8 @@ class MSFT_xWebsite : OMI_BaseResource
     [Write] String DefaultPage[];
     [Write] String EnabledProtocols;
     [write, EmbeddedInstance("MSFT_xWebAuthenticationInformation"), Description("Hashtable containing authentication information (Anonymous, Basic, Digest, Windows)")] String AuthenticationInfo;
-    [write, EmbeddedInstance("MSFT_xWebAnonymousAuthenticationCredentials"), Description("Credentials for Anonymous authentication")] String AnonymousCredentials;
+    [Write, Description("Indicates the account identity which is used for anonymous authentication. The values that are allowed for this property are: ApplicationPoolIdentity or SpecificUser."), ValueMap{"ApplicationPoolIdentity","SpecificUser"}, Values{"ApplicationPoolIdentity", "SpecificUser"}] String AnonymousIdentityType;
+    [Write, Description("Indicates the custom account credentials. This property is only valid when Anonymous authentication is enabled and the IdentityType property is set to SpecificUser."), EmbeddedInstance("MSFT_Credential")] String AnonymousCredential;
     [Write, Description ("Allows the Website to automatically start without a request")] Boolean PreloadEnabled;
     [Write, Description ("Enables Autostart on a Website.")] Boolean ServiceAutoStartEnabled;
     [Write, Description ("Adds a AutostartProvider")] String ServiceAutoStartProvider;
