@@ -141,6 +141,13 @@ function Get-TargetResource
 
         [Array] $cimLogCustomFields = ConvertTo-CimLogCustomFields -InputObject $website.logFile.customFields.Collection
         $anonymousCredentials = Get-AnonymousCredentials -Site $Name
+
+        $anonymousIdentityType = $null
+        if($cimAuthentication.CimInstanceProperties['Anonymous'].Value -eq 'true')
+        {
+            $anonymousIdentityType = if($anonymousCredentials -eq $null) { "ApplicationPoolIdentity"} else { "SpecificUser"}
+        }
+
     }
     # Multiple websites with the same name exist. This is not supported and is an error
     else
@@ -163,6 +170,7 @@ function Get-TargetResource
         DefaultPage              = $allDefaultPages
         EnabledProtocols         = $website.EnabledProtocols
         AuthenticationInfo       = $cimAuthentication
+        AnonymousIdentityType    = $anonymousIdentityType
         AnonymousCredentials     = $anonymousCredentials
         PreloadEnabled           = $website.applicationDefaults.preloadEnabled
         ServiceAutoStartProvider = $website.applicationDefaults.serviceAutoStartProvider
@@ -764,8 +772,12 @@ function Test-TargetResource
         [Microsoft.Management.Infrastructure.CimInstance]
         $AuthenticationInfo,
 
-        [Microsoft.Management.Infrastructure.CimInstance]
-        $AnonymousCredentials,
+        [ValidateSet('ApplicationPoolIdentity', 'SpecificUser')]
+        [String] $AnonymousIdentityType,
+
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $AnonymousCredential,
 
         [Boolean]
         $PreloadEnabled,
@@ -914,8 +926,8 @@ function Test-TargetResource
             Write-Verbose -Message ($LocalizedData.VerboseTestTargetFalseAuthenticationInfo -f $Name)
         }
 
-        if($PSBoundParameters.ContainsKey('AnonymousCredentials') -and `
-           (-not (Test-AnonymousCredentials -Site $Name -Credentials $AnonymousCredentials)))
+        if($PSBoundParameters.ContainsKey('AnonymousCredential') -and `
+           (-not (Test-AnonymousCredentials -Site $Name -Credentials $AnonymousCredential)))
         {
             $inDesiredState = $false
             Write-Verbose -Message ($LocalizedData.VerboseTestTargetFalseAnonymousCredentials -f $Name)
@@ -2296,18 +2308,24 @@ function Test-AnonymousCredentials
     (
         [Parameter(Mandatory = $true)]
         [String]$Site,
-        [Microsoft.Management.Infrastructure.CimInstance]
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
         $Credentials
     )
 
     $currentCredentials = Get-AnonymousCredentials -Site $Site
 
-    if($currentCredentials -eq $null)
+    if(($currentCredentials -eq $null) -and ($Credentials -eq $null))
+    {
+        return $true
+    }
+
+    if(($currentCredentials -eq $null) -or ($Credentials -eq $null))
     {
         return $false
     }
 
-    ($currentCredentials.UserName -eq $Credentials.UserName) -and ($currentCredentials.Password -eq $Credentials.Password)
+    ($currentCredentials.UserName -eq $Credentials.UserName) -and ($currentCredentials.GetNetworkCredential().Password -eq $Credentials.GetNetworkCredential().Password)
 }
  <#
         .SYNOPSIS
@@ -2327,11 +2345,10 @@ function Get-AnonymousCredentials
     $anonymousAuthentication = Get-WebConfiguration -Filter 'system.webServer/security/authentication/anonymousAuthentication' -PSPath "IIS:\Sites\$Site"
     if($anonymousAuthentication.enabled)
     {
-         New-CimInstance -ClassName MSFT_xWebAnonymousAuthenticationCredentials `
-        -ClientOnly `
-        -Property @{
-            UserName = ConvertTo-NotNullString -Value $anonymousAuthentication.userName
-            Password = ConvertTo-NotNullString -Value $anonymousAuthentication.password
+        if([string]::IsNullOrWhiteSpace($anonymousAuthentication.userName) -ne $true)
+        {
+            $securePassword = $anonymousAuthentication.password | ConvertTo-SecureString -AsPlainText -Force
+            New-Object -TypeName PSCredential -ArgumentList $anonymousAuthentication.userName, $securePassword
         }
     }
 }
